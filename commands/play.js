@@ -1,20 +1,12 @@
 const i18n = require("../util/i18n");
 const { play } = require("../include/play");
-const ytdl = require("ytdl-core");
+const ytdl = require('ytdl-core-discord');
+const { Client, Collection, MessageEmbed } = require("discord.js");
 const YouTubeAPI = require("simple-youtube-api");
 const scdl = require("soundcloud-downloader").default;
 const https = require("https");
 const { YOUTUBE_API_KEY, SOUNDCLOUD_CLIENT_ID, DEFAULT_VOLUME } = require("../util/Util");
 const youtube = new YouTubeAPI(YOUTUBE_API_KEY);
-const fetch = require('node-fetch');
-const {duration} = require('durations');
-const { title } = require("process");
-const spotifyURI = require("spotify-uri");
-const Spotify = require("node-spotify-api");
-const spotify = new Spotify({
-  id: "d993716fdda9438281b6f2a81acbc506",
-  secret: "302d1908b2ee4ce0bfaaede6f7bc788e",
-});
 
 module.exports = {
   name: "play",
@@ -26,7 +18,7 @@ module.exports = {
 
     const serverQueue = message.client.queue.get(message.guild.id);
 
-    if (!channel) return message.reply(i18n.__("Join a voice channel first, Kono Baka Nyamrade!")).catch(console.error);
+    if (!channel) return message.reply(i18n.__("play.errorNotChannel")).catch(console.error);
 
     if (serverQueue && channel !== message.guild.me.voice.channel)
       return message
@@ -40,34 +32,20 @@ module.exports = {
 
     const permissions = channel.permissionsFor(message.client.user);
     if (!permissions.has("CONNECT")) return message.reply(i18n.__("play.missingPermissionConnect"));
-    if (!permissions.has("SPEAK")) return message.reply(i18n.__("That's how you treat a nyajesty?Give me the proper permissions to speak in this voice channel nyaaa!"));
+    if (!permissions.has("SPEAK")) return message.reply(i18n.__("play.missingPermissionSpeak"));
 
-    const search = args.join("%20");
-    search.replace(/\s/g, '%20')
-    var api = "https://www.googleapis.com/youtube/v3/search?key=AIzaSyCFFSfXnciLp58cAL1CG0H6OPOYkpFsjrI&part=snippet&type=video&q="+search+"&maxResults=1"
-    let settings = { method: "Get" };
-
-
+    const search = args.join(" ");
     const videoPattern = /^(https?:\/\/)?(www\.)?(m\.|music\.)?(youtube\.com|youtu\.?be)\/.+$/gi;
     const playlistPattern = /^.*(list=)([^#\&\?]*).*/gi;
     const scRegex = /^https?:\/\/(soundcloud\.com)\/(.*)$/;
     const mobileScRegex = /^https?:\/\/(soundcloud\.app\.goo\.gl)\/(.*)$/;
-    const spotifyPattern =
-    /^.*(https:\/\/open\.spotify\.com\/track)([^#\&\?]*).*/gi;
-  const spotifyValid = spotifyPattern.test(args[0]);
-  const spotifyPlaylistPattern =
-    /^.*(https:\/\/open\.spotify\.com\/playlist)([^#\&\?]*).*/gi;
-  const spotifyPlaylistValid = spotifyPlaylistPattern.test(args[0]);
     const url = args[0];
-    
     const urlValid = videoPattern.test(args[0]);
-    
+
     // Start the playlist if playlist url was provided
     if (!videoPattern.test(args[0]) && playlistPattern.test(args[0])) {
       return message.client.commands.get("playlist").execute(message, args);
     } else if (scdl.isValidUrl(url) && url.includes("/sets/")) {
-      return message.client.commands.get("playlist").execute(message, args);
-    } else if (spotifyPlaylistValid) {
       return message.client.commands.get("playlist").execute(message, args);
     }
 
@@ -101,45 +79,15 @@ module.exports = {
     let songInfo = null;
     let song = null;
 
-    if (spotifyValid) {
-      let spotifyTitle, spotifyArtist;
-      const spotifyTrackID = spotifyURI.parse(url).id;
-      const spotifyInfo = await spotify
-        .request(`https://api.spotify.com/v1/tracks/${spotifyTrackID}`)
-        .catch((err) => {
-          return message.channel.send(`Oops... \n` + err);
-        });
-      spotifyTitle = spotifyInfo.name;
-      spotifyArtist = spotifyInfo.artists[0].name;
-
-      try {
-        const final = await youtube.searchVideos(
-          `${spotifyTitle} - ${spotifyArtist}`,
-          1,
-          { part: "snippet" }
-        );
-        songInfo = await ytdl.getInfo(final[0].url);
-        song = {
-          title: songInfo.videoDetails.title,
-          url: songInfo.videoDetails.video_url,
-          duration: songInfo.videoDetails.lengthSeconds,
-          thumbnail: songInfo.videoDetails.thumbnails[3].url,
-          user: message.author,
-        };
-      } catch (err) {
-        console.log(err);
-        const throwErrSpotify = new MessageEmbed().setDescription(
-          `Oops.. There was an error! \n` + err
-        );
-        return message.channel.send(throwErrSpotify);
-      }
-    } else if (urlValid) {
+    if (urlValid) {
       try {
         songInfo = await ytdl.getInfo(url);
         song = {
           title: songInfo.videoDetails.title,
           url: songInfo.videoDetails.video_url,
-          duration: songInfo.videoDetails.lengthSeconds
+          duration: songInfo.videoDetails.lengthSeconds,
+          timg: songInfo.image,
+          req: message.author
         };
       } catch (error) {
         console.error(error);
@@ -151,7 +99,9 @@ module.exports = {
         song = {
           title: trackInfo.title,
           url: trackInfo.permalink_url,
-          duration: Math.ceil(trackInfo.duration / 1000)
+          duration: Math.ceil(trackInfo.duration / 1000),
+          img: trackInfo.image,
+          req: message.author
         };
       } catch (error) {
         console.error(error);
@@ -159,15 +109,24 @@ module.exports = {
       }
     } else {
       try {
-        let response = await fetch(api);
-        let data = await response.json()
-        
-        var youtubeid = "https://www.youtube.com/watch?v="+data["items"][0]["id"]["videoId"]
+        const results = await youtube.searchVideos(search, 1, { part: "id" });
 
+        if (!results.length) {
+          message.reply(i18n.__("play.songNotFound")).catch(console.error);
+          return;
+        }
+
+        songInfo = await ytdl.getInfo(results[0].url);
+        let thumb = songInfo.videoDetails.videoId;
+        let thumbnail = "https://i.ytimg.com/vi/"+[thumb]+"/maxresdefault.jpg";
         song = {
-                  title: data["items"][0]["snippet"]["title"],
-                  url: youtubeid,
-                };
+          title: songInfo.videoDetails.title,
+          url: songInfo.videoDetails.video_url,
+          duration: songInfo.videoDetails.lengthSeconds,
+          img: thumbnail,
+          req: message.author
+        };
+        console.log(song)
       } catch (error) {
         console.error(error);
         
@@ -181,8 +140,20 @@ module.exports = {
 
     if (serverQueue) {
       serverQueue.songs.push(song);
+      
+      const kein = new MessageEmbed()
+        .setAuthor(
+          "Has been added to the Queue!",
+          "https://media.giphy.com/media/jt4T61XA7JkGokWHal/giphy.gif"
+         )
+        .setThumbnail(song.img)
+        .setColor("RANDOM")
+        .addField("Title", `[${song.title}]` + `(${song.url})`)
+        .addField("Position in queue", `**\`${serverQueue.songs.length - 1}\`**`, true)
+        .setFooter(`Requested by: ${message.author.username}#${message.author.discriminator}`, message.member.user.displayAvatarURL({ dynamic: true }))
+
       return serverQueue.textChannel
-        .send(i18n.__mf("play.queueAdded", { title: song.title, author: message.author }))
+        .send(kein)
         .catch(console.error);
     }
 
