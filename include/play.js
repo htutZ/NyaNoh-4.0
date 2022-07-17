@@ -1,15 +1,10 @@
 const ytdl = require("ytdl-core-discord");
 const scdl = require("soundcloud-downloader").default;
-const { Client, Collection, MessageEmbed, splitMessage, escapeMarkdown,MessageAttachment } = require("discord.js");
 const { canModifyQueue, STAY_TIME } = require("../util/Util");
 const i18n = require("../util/i18n");
-const lyricsFinder = require("lyrics-finder");
-const { htut } = require("../util/htut");
-const Genius = require("genius-lyrics");
-const genius = new Genius.Client("NEjnNMMTCL_zOroaKe5Mu37DvPfJSu1SF_fGyBu2Ay5EUIeLKTQHeEtU7xEc2n-J");
 
 module.exports = {
-  async play(song, message, client, filters) {
+  async play(song, message) {
     const { SOUNDCLOUD_CLIENT_ID } = require("../util/Util");
 
     let config;
@@ -100,7 +95,6 @@ module.exports = {
       await playingMessage.react("🔁");
       await playingMessage.react("🔀");
       await playingMessage.react("⏹");
-      await playingMessage.react("📜");
     } catch (error) {
       console.error(error);
     }
@@ -216,43 +210,6 @@ module.exports = {
           }
           collector.stop();
           break;
-
-          case "📜":
-            const searches = genius.songs.search(queue.songs[0].title,"");
-            const firstSong = searches[0];
-            reaction.users.remove(user).catch(console.error);
-            if (!canModifyQueue(member)) return;
-            let lyrics = null;
-            let temEmbed = new MessageEmbed()
-            .setAuthor("Searching...").setFooter("Lyrics")
-            .setColor("#c219d8")
-            let result = message.channel.send(temEmbed)
-            .then((temEmbed) => 
-              temEmbed.edit
-          ); 
-
-            try {
-              const lyrics = firstSong.lyrics();
-              console.log("Lyrics of the Song:\n", lyrics, "\n");
-              // lyrics = genius.fetchLyrics(queue.songs[0].title,"");
-              console.log(lyrics)
-              if (!lyrics) lyrics = `No lyrics found for ${queue.songs[0].title}.`;
-            } catch (error) {
-              lyrics = `No lyrics found for ${queue.songs[0].title}.`;
-            }
-        
-            let lyricsEmbed = new MessageEmbed()
-              .setTitle("📜 Lyrics")
-              .setDescription(lyrics)
-              .setColor("#c219d8")
-        
-            if (lyricsEmbed.description.length >= 2048)
-        
-              lyricsEmbed.description = `${lyricsEmbed.description.substr(0, 2045)}...`;
-              message.react("✅");
-              return message.channel.send(lyricsEmbed).catch(console.error);
-
-              break;
 
         default:
           reaction.users.remove(user).catch(console.error);
